@@ -404,18 +404,19 @@ export class SessionMonitor {
     };
   }
 
-  /** Check for dead tmux windows and notify via channels. */
+  /** Check for dead tmux windows and notify via channels.
+   *  Issue #69: Detects both missing windows and zombie windows (window exists but process dead). */
   private async checkDeadSessions(): Promise<void> {
     const sessions = this.sessions.listSessions();
     for (const session of sessions) {
       if (this.deadNotified.has(session.id)) continue;
 
-      const alive = await this.sessions.isWindowAlive(session.id);
-      if (!alive) {
+      const deathReason = await this.sessions.getWindowDeathReason(session.id);
+      if (deathReason) {
         this.deadNotified.add(session.id);
         await this.channels.statusChange(
           this.makePayload('status.dead', session,
-            `Session "${session.windowName}" died — tmux window no longer exists. ` +
+            `Session "${session.windowName}" died — ${deathReason}. ` +
             `Last activity: ${new Date(session.lastActivity).toISOString()}`),
         );
         this.removeSession(session.id);

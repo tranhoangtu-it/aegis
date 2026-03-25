@@ -313,16 +313,22 @@ export class SessionManager {
    *  Issue #69: A window can exist with a crashed/zombie CC process (zombie window).
    *  After checking window exists, also verify the pane PID is alive. */
   async isWindowAlive(id: string): Promise<boolean> {
+    const reason = await this.getWindowDeathReason(id);
+    return reason === null;
+  }
+
+  /** Issue #69: Return why a session is dead, or null if alive. */
+  async getWindowDeathReason(id: string): Promise<string | null> {
     const session = this.state.sessions[id];
-    if (!session) return false;
+    if (!session) return 'session not found in state';
     try {
-      if (!(await this.tmux.windowExists(session.windowId))) return false;
+      if (!(await this.tmux.windowExists(session.windowId))) return 'tmux window no longer exists';
       // Verify the process inside the pane is still alive
       const panePid = await this.tmux.listPanePid(session.windowId);
-      if (panePid !== null && !this.tmux.isPidAlive(panePid)) return false;
-      return true;
+      if (panePid !== null && !this.tmux.isPidAlive(panePid)) return 'pane process is dead (zombie window)';
+      return null; // alive
     } catch {
-      return false;
+      return 'error checking window health';
     }
   }
 

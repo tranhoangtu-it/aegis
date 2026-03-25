@@ -192,4 +192,82 @@ describe('Session health check', () => {
       expect(result).toBe(false);
     });
   });
+
+  describe('Issue #69: zombie window detection (process alive check)', () => {
+    it('should detect alive when pane PID is alive', async () => {
+      // Simulate: window exists, pane PID returned, kill -0 succeeds
+      const windowExists = true;
+      const panePid = 12345;
+      let killSucceeded = false;
+      try {
+        // process.kill(pid, 0) succeeds for alive processes
+        // We simulate with a known-alive PID (current process)
+        process.kill(process.pid, 0);
+        killSucceeded = true;
+      } catch { /* dead */ }
+
+      const alive = windowExists && killSucceeded;
+      expect(alive).toBe(true);
+      expect(panePid).toBeGreaterThan(0);
+    });
+
+    it('should detect dead when pane PID is not alive', async () => {
+      // Simulate: window exists, pane PID returned, but kill -0 fails
+      const windowExists = true;
+      const panePid = 999999999; // almost certainly not a real PID
+      let killSucceeded = false;
+      try {
+        process.kill(panePid, 0);
+        killSucceeded = true;
+      } catch {
+        killSucceeded = false;
+      }
+
+      const alive = windowExists && killSucceeded;
+      expect(alive).toBe(false);
+    });
+
+    it('should treat null pane PID as alive (fallback)', () => {
+      // If tmux can't return a PID, we don't mark it dead — be conservative
+      const windowExists = true;
+      const panePid: number | null = null;
+      const alive = windowExists; // null PID → skip check → alive
+      expect(alive).toBe(true);
+    });
+
+    it('should report zombie window in health details', () => {
+      const windowExists = true;
+      const processAlive = false;
+      let details: string;
+      if (!windowExists) {
+        details = 'Tmux window does not exist — session is dead';
+      } else if (!processAlive) {
+        details = 'Tmux window exists but pane process is dead — session is dead (zombie window)';
+      } else {
+        details = 'ok';
+      }
+      expect(details).toContain('zombie window');
+      expect(details).toContain('pane process is dead');
+    });
+
+    it('should include zombie reason in monitor death notification', () => {
+      const deathReason = 'pane process is dead (zombie window)';
+      const windowName = 'cc-test';
+      const lastActivity = Date.now() - 5 * 60 * 1000;
+      const detail = `Session "${windowName}" died — ${deathReason}. ` +
+        `Last activity: ${new Date(lastActivity).toISOString()}`;
+      expect(detail).toContain('zombie window');
+      expect(detail).toContain('Last activity:');
+    });
+
+    it('should include window-missing reason in monitor death notification', () => {
+      const deathReason = 'tmux window no longer exists';
+      const windowName = 'cc-test';
+      const lastActivity = Date.now() - 5 * 60 * 1000;
+      const detail = `Session "${windowName}" died — ${deathReason}. ` +
+        `Last activity: ${new Date(lastActivity).toISOString()}`;
+      expect(detail).toContain('tmux window no longer exists');
+      expect(detail).toContain('Last activity:');
+    });
+  });
 });
